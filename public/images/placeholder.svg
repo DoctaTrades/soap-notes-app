@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="420" viewBox="0 0 700 420">
+  <rect fill="#fafaf7" width="700" height="420"/>
+  <rect x="1" y="1" width="698" height="418" fill="none" stroke="#e2dfd8" stroke-width="2" stroke-dasharray="8,4" rx="8"/>
+  <text x="350" y="195" text-anchor="middle" font-size="15" fill="#999" font-family="sans-serif">Body chart image not yet added</text>
+  <text x="350" y="220" text-anchor="middle" font-size="12" fill="#bbb" font-family="sans-serif">Add your image file to /public/images/ and redeploy</text>
+  <text x="350" y="245" text-anchor="middle" font-size="11" fill="#ccc" font-family="sans-serif">Tap/click to place markers</text>
+</svg>
