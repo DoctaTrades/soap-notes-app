@@ -177,20 +177,13 @@ export async function uploadPdfToGHL(contactId, pdfBlob, filename) {
   const config = getGHLConfig();
   if (!config?.token || !config?.locationId) throw new Error("GHL not configured");
 
-  // Generate a unique file ID
-  const fileId = `file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  
-  // The custom field key for SOAP Notes file upload field
-  const customFieldId = "soap_notes";
-
-  // Upload file directly to the contact's custom field
-  // API format: key is "{customFieldId}_{fileId}" and value is the file buffer
+  // Upload file as attachment to contact via conversations endpoint
+  // This places the file in the contact's documents/attachments section
   const formData = new FormData();
-  formData.append(`${customFieldId}_${fileId}`, pdfBlob, filename);
+  formData.append("fileAttachment", pdfBlob, filename);
   formData.append("contactId", contactId);
-  formData.append("locationId", config.locationId);
 
-  const uploadRes = await fetch(`${GHL_BASE}/forms/upload-custom-files`, {
+  const uploadRes = await fetch(`${GHL_BASE}/conversations/messages/upload`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${config.token}`,
@@ -201,39 +194,21 @@ export async function uploadPdfToGHL(contactId, pdfBlob, filename) {
 
   if (!uploadRes.ok) {
     const errText = await uploadRes.text().catch(() => "");
-    console.error("Custom field upload failed, trying media library fallback...", errText);
-    
-    // Fallback: upload to media library and link in notes
-    const mediaForm = new FormData();
-    mediaForm.append("file", pdfBlob, filename);
-    mediaForm.append("name", filename);
-
-    const mediaRes = await fetch(`${GHL_BASE}/medias/upload-file`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${config.token}`,
-        "Version": "2021-07-28",
-      },
-      body: mediaForm,
-    });
-
-    if (mediaRes.ok) {
-      const mediaData = await mediaRes.json();
-      const fileUrl = mediaData.url || mediaData.fileUrl || mediaData.data?.url || mediaData.data?.fileUrl || "";
-      const noteBody = `📎 SOAP Note PDF: ${filename}${fileUrl ? `\n\nDownload: ${fileUrl}` : ""}`;
-      await createContactNote(contactId, noteBody);
-      return { fileUrl, filename, method: "media-library" };
-    }
-    
+    console.error("Conversations upload response:", errText);
     throw new Error(`File upload failed ${uploadRes.status}: ${errText}`);
   }
 
   const uploadData = await uploadRes.json();
-  
-  // Also add a note referencing the uploaded document
-  await createContactNote(contactId, `📎 SOAP Note PDF attached: ${filename}`);
+  const fileUrl = uploadData.urls?.[0] || uploadData.url || uploadData.data?.url || "";
 
-  return { filename, method: "custom-field", data: uploadData };
+  // Also add a note referencing the document
+  if (fileUrl) {
+    await createContactNote(contactId, `📎 SOAP Note: ${filename}\n\n${fileUrl}`);
+  } else {
+    await createContactNote(contactId, `📎 SOAP Note attached: ${filename}`);
+  }
+
+  return { fileUrl, filename, data: uploadData };
 }
 
 // ── Custom Object Operations ──
