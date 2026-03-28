@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getGHLConfig, saveGHLConfig, isGHLConfigured, getContactIdFromURL, getContact, createContactNote, formatSOAPNoteForGHL } from "./ghl.js";
+import { getGHLConfig, saveGHLConfig, isGHLConfigured, getContactIdFromURL, getContact, createContactNote, formatSOAPNoteForGHL, generateSOAPPdf, uploadPdfToGHL } from "./ghl.js";
 
 /* ================================================================
    RESTORED CHIROPRACTIC — SOAP NOTE SYSTEM v2
@@ -672,14 +672,12 @@ const NotePreview = ({ data, customGroups = [], orthoGroups = [], customFieldDef
 
       {latMarkers.length > 0 && <>
         <h3 style={h3}>{patient.species||"Animal"} Lateral Body Chart</h3>
-        <div style={{ border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", marginBottom:8 }}>
+        <div style={{ border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", marginBottom:8, position:"relative" }}>
           {patient.species === "Human" ? <ChartImg src={HU_CHART_SRC} alt="Human body chart" style={{ width:"100%", display:"block" }} /> : patient.species === "Equine" ? <ChartImg src={EQ_LATERAL_SRC} alt="Equine lateral" style={{ width:"100%", display:"block" }} /> : patient.species === "Feline" ? <ChartImg src={FE_LATERAL_SRC} alt="Feline lateral" style={{ width:"100%", display:"block" }} /> : patient.species === "Swine" ? <ChartImg src={SW_LATERAL_SRC} alt="Swine lateral" style={{ width:"100%", display:"block" }} /> : patient.species === "Avian" ? <ChartImg src={AV_LATERAL_SRC} alt="Avian lateral" style={{ width:"100%", display:"block" }} /> : patient.species === "Caprine" ? <ChartImg src={CP_LATERAL_SRC} alt="Caprine lateral" style={{ width:"100%", display:"block" }} /> : patient.species === "Canine" ? <ChartImg src={K9_LATERAL_SRC} alt="Canine lateral" style={{ width:"100%", display:"block" }} /> : <CanineLateralSVG />}
-          {/* Overlay markers */}
-          <div style={{ position:"relative", marginTop: patient.species === "Equine" ? -542 : -420, height: patient.species === "Equine" ? 542 : 420, pointerEvents:"none" }}>
-            {latMarkers.map((m,i) => (
-              <div key={i} style={{ position:"absolute", left:`${m.xPct}%`, top:`${m.yPct}%`, transform:"translate(-50%,-50%)", width:24, height:24, borderRadius:"50%", background:C.tealLight, color:C.white, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, boxShadow:"0 2px 6px rgba(0,0,0,.3)", fontFamily:font }}>{i+1}</div>
-            ))}
-          </div>
+          {/* Overlay markers using percentage positioning */}
+          {latMarkers.map((m,i) => (
+            <div key={i} style={{ position:"absolute", left:`${m.xPct}%`, top:`${m.yPct}%`, transform:"translate(-50%,-50%)", width:24, height:24, borderRadius:"50%", background:C.tealLight, color:C.white, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, boxShadow:"0 2px 6px rgba(0,0,0,.3)", fontFamily:font, zIndex:2 }}>{i+1}</div>
+          ))}
         </div>
         {latMarkers.map((m,i) => (
           <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:6 }}>
@@ -691,8 +689,11 @@ const NotePreview = ({ data, customGroups = [], orthoGroups = [], customFieldDef
 
       {dorMarkers.length > 0 && <>
         <h3 style={h3}>Dorsal Body Chart</h3>
-        <div style={{ border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", marginBottom:8, display:"flex", justifyContent:"center" }}>
+        <div style={{ border:`1px solid ${C.border}`, borderRadius:8, overflow:"hidden", marginBottom:8, display:"flex", justifyContent:"center", position:"relative" }}>
           {patient.species === "Equine" ? <ChartImg src={EQ_DORSAL_SRC} alt="Equine dorsal" style={{ maxWidth:350, width:"100%", display:"block" }} /> : (patient.species === "Canine" || patient.species === "Feline") ? <ChartImg src={K9_DORSAL_SRC} alt={`${patient.species} dorsal`} style={{ maxWidth:350, width:"100%", display:"block" }} /> : <CanineDorsalSVG />}
+          {dorMarkers.map((m,i) => (
+            <div key={i} style={{ position:"absolute", left:`${m.xPct}%`, top:`${m.yPct}%`, transform:"translate(-50%,-50%)", width:24, height:24, borderRadius:"50%", background:C.tealLight, color:C.white, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, boxShadow:"0 2px 6px rgba(0,0,0,.3)", fontFamily:font, zIndex:2 }}>{i+1}</div>
+          ))}
         </div>
         {dorMarkers.map((m,i) => (
           <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start", marginBottom:6 }}>
@@ -1475,8 +1476,67 @@ export default function App() {
             <div style={{ marginBottom:14, display:"flex", gap:8, flexWrap:"wrap" }} className="no-print">
               {btn(false, "← Back to Edit", ()=>{ if(noteStatus !== "draft") { if(confirm("This note has been finalized. Editing will revert it to Draft status. Continue?")) { setNoteStatus("draft"); setView("form"); } } else { setView("form"); } })}
               {btn(true, "💾 Save Note", saveNote)}
-              {noteStatus === "draft" && btn(false, "✍ Finalize & Sign", async () => { setNoteStatus("finalized"); const d = getData(); d.noteStatus = "finalized"; const id = noteId || `n-${Date.now()}`; const rec = { id, savedAt:new Date().toISOString(), pName:patient.name, oName:owner.name, species:patient.species, date:noteDate, status:"finalized", data:d }; let upd; if(noteId){upd=savedNotes.map(n=>n.id===id?rec:n)}else{upd=[rec,...savedNotes];setNoteId(id)} setSavedNotes(upd); await persist(upd); alert("Note finalized and signed!"); }, { background:"#22c55e", color:"#fff", border:"none" })}
-              {btn(false, "🖨 Print / PDF", ()=>window.print(), { marginLeft:"auto" })}
+              {noteStatus === "draft" && btn(false, "✍ Finalize & Sign", async () => {
+                setNoteStatus("finalized");
+                const d = getData(); d.noteStatus = "finalized";
+                const id = noteId || `n-${Date.now()}`;
+                const rec = { id, savedAt:new Date().toISOString(), pName:patient.name, oName:owner.name, species:patient.species, date:noteDate, status:"finalized", data:d };
+                let upd; if(noteId){upd=savedNotes.map(n=>n.id===id?rec:n)}else{upd=[rec,...savedNotes];setNoteId(id)}
+                setSavedNotes(upd); await persist(upd);
+
+                // Generate PDF
+                const previewEl = document.getElementById("soap-printable");
+                if (previewEl) {
+                  try {
+                    setGhlStatus("pushing");
+                    const { pdf, filename, blob } = await generateSOAPPdf(previewEl, patient.name, noteDate);
+
+                    // Auto-download the PDF locally
+                    pdf.save(filename);
+
+                    // Upload to GHL if configured
+                    const contactId = ghlContactId || null;
+                    if (isGHLConfigured() && contactId) {
+                      try {
+                        await uploadPdfToGHL(contactId, blob, filename);
+                        // Also push the text note
+                        const formatted = formatSOAPNoteForGHL(d, practice);
+                        await createContactNote(contactId, formatted);
+                        setNoteStatus("sent");
+                        const sentUpd = (upd || savedNotes).map(n => n.id === id ? {...n, status:"sent", data:{...n.data, noteStatus:"sent"}} : n);
+                        setSavedNotes(sentUpd); await persist(sentUpd);
+                        setGhlStatus("success");
+                        setTimeout(() => setGhlStatus(""), 3000);
+                        alert("Note finalized! PDF saved locally and uploaded to GoHighLevel.");
+                      } catch (e) {
+                        console.error("GHL upload failed:", e);
+                        setGhlStatus("error");
+                        setTimeout(() => setGhlStatus(""), 5000);
+                        alert("Note finalized and PDF saved locally! GHL upload failed — check console for details.");
+                      }
+                    } else {
+                      setGhlStatus("");
+                      alert("Note finalized! PDF downloaded." + (isGHLConfigured() ? " No contact linked — PDF not uploaded to GHL." : ""));
+                    }
+                  } catch (e) {
+                    console.error("PDF generation failed:", e);
+                    setGhlStatus("");
+                    alert("Note finalized and saved! PDF generation failed — you can still use Print/PDF button.");
+                  }
+                } else {
+                  alert("Note finalized and signed!");
+                }
+              }, { background:"#22c55e", color:"#fff", border:"none" })}
+              {noteStatus !== "draft" && btn(false, "📄 Download PDF", async () => {
+                const previewEl = document.getElementById("soap-printable");
+                if (previewEl) {
+                  try {
+                    const { pdf, filename } = await generateSOAPPdf(previewEl, patient.name, noteDate);
+                    pdf.save(filename);
+                  } catch(e) { console.error("PDF error:", e); alert("PDF generation failed. Try Print/PDF instead."); }
+                }
+              }, { background:"#3b82f6", color:"#fff", border:"none" })}
+              {btn(false, "🖨 Print", ()=>window.print(), { marginLeft:"auto" })}
             </div>
             <div id="soap-printable" style={{ background:C.white, borderRadius:12, boxShadow:"0 4px 20px rgba(0,0,0,.08)", overflow:"hidden" }}>
               <NotePreview data={getData()} customGroups={customGroups} orthoGroups={orthoGroups} customFieldDefs={customFieldDefs} practice={practice} />
