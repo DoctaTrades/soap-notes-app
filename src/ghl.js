@@ -111,6 +111,104 @@ export async function updateContactNote(contactId, noteId, body) {
   });
 }
 
+// ── PDF Generation & Upload ──
+
+export async function generateSOAPPdf(previewElement, patientName, noteDate) {
+  // Dynamically import the libraries
+  const html2canvas = (await import("html2canvas")).default;
+  const { jsPDF } = await import("jspdf");
+
+  // Render the preview element to canvas
+  const canvas = await html2canvas(previewElement, {
+    scale: 2,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: "#ffffff",
+    logging: false,
+  });
+
+  // Calculate PDF dimensions (Letter size: 8.5 x 11 inches)
+  const pageWidth = 8.5;
+  const pageHeight = 11;
+  const pdf = new jsPDF("p", "in", "letter");
+
+  const imgWidth = pageWidth - 1; // 0.5in margins
+  const imgHeight = (canvas.height / canvas.width) * imgWidth;
+
+  // If the content is taller than one page, split across multiple pages
+  const maxContentHeight = pageHeight - 1; // 0.5in top + bottom margins
+  let yOffset = 0;
+  let page = 0;
+
+  while (yOffset < imgHeight) {
+    if (page > 0) pdf.addPage();
+
+    // Calculate the portion of the canvas for this page
+    const sourceY = (yOffset / imgHeight) * canvas.height;
+    const sourceHeight = Math.min(
+      (maxContentHeight / imgHeight) * canvas.height,
+      canvas.height - sourceY
+    );
+    const destHeight = (sourceHeight / canvas.height) * imgHeight;
+
+    // Create a temp canvas for this page slice
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sourceHeight;
+    const ctx = pageCanvas.getContext("2d");
+    ctx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
+
+    const pageImgData = pageCanvas.toDataURL("image/jpeg", 0.92);
+    pdf.addImage(pageImgData, "JPEG", 0.5, 0.5, imgWidth, destHeight);
+
+    yOffset += maxContentHeight;
+    page++;
+  }
+
+  // Generate filename
+  const safeName = (patientName || "note").replace(/[^a-zA-Z0-9]/g, "_");
+  const safeDate = (noteDate || new Date().toISOString().split("T")[0]).replace(/-/g, "");
+  const filename = `SOAP_${safeName}_${safeDate}.pdf`;
+
+  return { pdf, filename, blob: pdf.output("blob") };
+}
+
+export async function uploadPdfToGHL(contactId, pdfBlob, filename) {
+  const config = getGHLConfig();
+  if (!config?.token) throw new Error("GHL not configured");
+
+  // Step 1: Upload file to GHL Media Storage
+  const formData = new FormData();
+  formData.append("file", pdfBlob, filename);
+  formData.append("hosted", "true");
+  formData.append("fileProcessingMode", "skip-processing");
+
+  const uploadRes = await fetch(`${GHL_BASE}/medias/upload-file`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.token}`,
+      "Version": "2021-07-28",
+    },
+    body: formData,
+  });
+
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text().catch(() => "");
+    throw new Error(`Media upload failed ${uploadRes.status}: ${errText}`);
+  }
+
+  const uploadData = await uploadRes.json();
+  const fileUrl = uploadData.url || uploadData.fileUrl || uploadData.data?.url;
+
+  if (!fileUrl) throw new Error("No file URL returned from media upload");
+
+  // Step 2: Add note with PDF link to contact
+  const noteBody = `📎 SOAP Note PDF: ${filename}\n\nDownload: ${fileUrl}`;
+  await createContactNote(contactId, noteBody);
+
+  return { fileUrl, filename };
+}
+
 // ── Custom Object Operations ──
 // These use the Objects API for Patients, SOAP Notes, and Barns
 
