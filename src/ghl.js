@@ -199,11 +199,19 @@ export async function uploadPdfToGHL(contactId, pdfBlob, filename) {
   }
 
   const uploadData = await uploadRes.json();
-  const fileUrl = uploadData.urls?.[0] || uploadData.url || uploadData.data?.url || "";
+  
+  // Response format: { uploadedFiles: { "filename.pdf": "https://url..." } }
+  let fileUrl = "";
+  if (uploadData.uploadedFiles) {
+    const urls = Object.values(uploadData.uploadedFiles);
+    fileUrl = urls[0] || "";
+  } else {
+    fileUrl = uploadData.urls?.[0] || uploadData.url || uploadData.data?.url || "";
+  }
 
-  // Also add a note referencing the document
+  // Add a note with the document link
   if (fileUrl) {
-    await createContactNote(contactId, `📎 SOAP Note: ${filename}\n\n${fileUrl}`);
+    await createContactNote(contactId, `📎 SOAP Note: ${filename}\n\nDocument: ${fileUrl}`);
   } else {
     await createContactNote(contactId, `📎 SOAP Note attached: ${filename}`);
   }
