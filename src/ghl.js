@@ -175,13 +175,12 @@ export async function generateSOAPPdf(previewElement, patientName, noteDate) {
 
 export async function uploadPdfToGHL(contactId, pdfBlob, filename) {
   const config = getGHLConfig();
-  if (!config?.token) throw new Error("GHL not configured");
+  if (!config?.token || !config?.locationId) throw new Error("GHL not configured");
 
-  // Step 1: Upload file to GHL Media Storage
+  // Step 1: Upload file to GHL Media Storage (direct file upload, not hosted URL)
   const formData = new FormData();
   formData.append("file", pdfBlob, filename);
-  formData.append("hosted", "true");
-  formData.append("fileProcessingMode", "skip-processing");
+  formData.append("name", filename);
 
   const uploadRes = await fetch(`${GHL_BASE}/medias/upload-file`, {
     method: "POST",
@@ -198,12 +197,12 @@ export async function uploadPdfToGHL(contactId, pdfBlob, filename) {
   }
 
   const uploadData = await uploadRes.json();
-  const fileUrl = uploadData.url || uploadData.fileUrl || uploadData.data?.url;
-
-  if (!fileUrl) throw new Error("No file URL returned from media upload");
+  const fileUrl = uploadData.url || uploadData.fileUrl || uploadData.data?.url || uploadData.data?.fileUrl;
 
   // Step 2: Add note with PDF link to contact
-  const noteBody = `📎 SOAP Note PDF: ${filename}\n\nDownload: ${fileUrl}`;
+  const noteBody = fileUrl 
+    ? `📎 SOAP Note PDF: ${filename}\n\nDownload: ${fileUrl}`
+    : `📎 SOAP Note PDF generated: ${filename} (uploaded to media library)`;
   await createContactNote(contactId, noteBody);
 
   return { fileUrl, filename };
